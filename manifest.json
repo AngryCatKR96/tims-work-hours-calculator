@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "TIMS 근무시간 계산기",
+  "version": "1.0.0",
+  "description": "티맥스 TIMS 일일근태조회 페이지에서 이번 주 근무 시간을 계산합니다",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://dtims.tibero.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://dtims.tibero.com/*"],
+      "js": ["content.js"],
+      "css": ["styles/inject.css"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}
+

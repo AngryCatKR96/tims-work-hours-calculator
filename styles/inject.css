@@ -1,0 +1,33 @@
+/* TIMS 근무시간 계산기 스타일 */
+
+.tims-overtime-header {
+  min-width: 120px;
+}
+
+.tims-overtime-cell {
+  min-width: 120px;
+}
+
+.tims-time-input {
+  border: 1px solid #ccc;
+  border-radius: 3px;
+}
+
+.tims-time-input:hover {
+  border-color: #007bff;
+}
+
+.tims-time-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+.tims-overtime-result {
+  font-weight: 500;
+}
+
+.tims-total-row {
+  border-top: 2px solid #333;
+}
+
