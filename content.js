@@ -162,6 +162,7 @@ if (window.name !== 'frameBody') {
 
         let inTimes = [];
         let outTimes = [];
+        let lastEventType = null; // 'IN' | 'OUT' | null
 
         const rows = Array.from(table.querySelectorAll('tr')).slice(1); // skip header
         for (const r of rows) {
@@ -181,14 +182,17 @@ if (window.name !== 'frameBody') {
 
           if (isIn) inTimes.push(hhmm);
           if (isOut) outTimes.push(hhmm);
+          if (isIn) lastEventType = 'IN';
+          if (isOut) lastEventType = 'OUT';
         }
 
         const startTime = inTimes.length ? inTimes.sort()[0] : null;
         const endTime = outTimes.length ? outTimes.sort()[outTimes.length - 1] : null;
+        const lastEventIsOut = lastEventType === 'OUT';
 
         if (startTime || endTime) {
-          console.log('TIMS Ext: Parsed times from API table:', { startTime, endTime });
-          return { startTime, endTime };
+          console.log('TIMS Ext: Parsed times from API table:', { startTime, endTime, inTimes, outTimes, lastEventIsOut });
+          return { startTime, endTime, inTimes, outTimes, lastEventIsOut };
         }
       }
     } catch (e) {
@@ -200,6 +204,7 @@ if (window.name !== 'frameBody') {
     if (times.length >= 1) {
       const startTime = times[0] || null;
       const endTime = times.length >= 2 ? times[times.length - 1] : null;
+      // 폴백은 신뢰도가 낮으므로 lastEventIsOut을 알 수 없다. undefined로 반환
       return { startTime, endTime };
     }
     return null;
@@ -587,12 +592,13 @@ if (window.name !== 'frameBody') {
     cell.style.backgroundColor = '#f9f9f9';
     const saved = await loadTimeData(dayData.dateKey);
     const startTime = dayData.startTime || saved?.startTime || '09:00';
+    // 요청사항: 오늘은 기본 퇴근시간을 18:00으로 프리필(편집 가능)
     const endTime = dayData.endTime || saved?.endTime || '18:00';
 
     cell.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
         <input type="time" step="60" value="${startTime}" class="tims-ext-input" style="width: 120px; min-width: 110px; border: 1px solid #ccc; font-size: 12px; padding: 2px;">
-        <input type="time" step="60" value="${endTime}" class="tims-ext-input" style="width: 120px; min-width: 110px; border: 1px solid #ccc; font-size: 12px; padding: 2px;">
+        <input type="time" step="60" value="${endTime}" placeholder="예상 퇴근 입력" class="tims-ext-input" style="width: 120px; min-width: 110px; border: 1px solid #ccc; font-size: 12px; padding: 2px;">
         <div class="tims-ext-result" style="font-size: 11px; height: 14px;"></div>
       </div>
     `;
@@ -616,10 +622,14 @@ if (window.name !== 'frameBody') {
       const totalOvertime = weeklyData.reduce((sum, day) => {
           const effectiveStart = day.startTime || null;
           let effectiveEnd = day.endTime || null;
-          // 오늘은 저장된 예상 퇴근 시간을 합계 계산에 반영
+          // 오늘은 다음 우선순위로 합계에 반영: 실제 OUT endTime > 저장값 > 기본 18:00(임시)
           if (!effectiveEnd && isToday(day.date)) {
             const saved = savedData?.[day.dateKey];
-            if (saved?.endTime) effectiveEnd = saved.endTime;
+            if (saved?.endTime) {
+              effectiveEnd = saved.endTime;
+            } else {
+              effectiveEnd = '18:00';
+            }
           }
           const overtime = calculateOvertime(effectiveStart, effectiveEnd);
           return sum + (overtime || 0);
@@ -684,8 +694,14 @@ if (window.name !== 'frameBody') {
       const todayFlag = isToday(dayData.date);
       if (dayData.isFuture) {
         await renderFutureCell(cell, dayData, onTimeChange);
-      } else if (todayFlag && !dayData.endTime) {
-        await renderTodayCell(cell, dayData, onTimeChange);
+      } else if (todayFlag) {
+        if (dayData.lastEventIsOut && dayData.endTime) {
+          // 오늘이지만 실제 마지막 이벤트가 OUT이면 확정 표시
+          renderPastCell(cell, dayData);
+        } else {
+          // 오늘이고 아직 최종 OUT이 아니면 편집 가능 렌더
+          await renderTodayCell(cell, dayData, onTimeChange);
+        }
       } else {
         renderPastCell(cell, dayData);
       }
@@ -735,8 +751,28 @@ if (window.name !== 'frameBody') {
             try {
                 const html = await fetchAttendanceData(dayData.dateKey, empInfo.empNo, empInfo.empNm);
                 const times = parseTimesFromHTML(html);
+                const todayFlag = isToday(dayData.date);
                 if (!dayData.startTime && times?.startTime) dayData.startTime = times.startTime;
-                if (!dayData.endTime && times?.endTime) dayData.endTime = times.endTime;
+                if (todayFlag) {
+                  // 오늘은 마지막 이벤트가 OUT일 때만 endTime 채택 (폴백 결과는 사용 금지)
+                  const lastOut = times?.lastEventIsOut === true;
+                  dayData.lastEventIsOut = lastOut;
+                  if (!dayData.endTime && lastOut && times?.endTime) {
+                    dayData.endTime = times.endTime;
+                  } else {
+                    // 오늘인데 마지막이 OUT이 아니거나 불명확하면 endTime을 비워둔다
+                    if (!dayData.endTime) dayData.endTime = null;
+                  }
+                  console.debug('TIMS Ext: Today decision', {
+                    dateKey: dayData.dateKey,
+                    inTimes: times?.inTimes,
+                    outTimes: times?.outTimes,
+                    lastEventIsOut: lastOut,
+                    appliedEndTime: dayData.endTime
+                  });
+                } else {
+                  if (!dayData.endTime && times?.endTime) dayData.endTime = times.endTime;
+                }
             } catch (e) {
                 console.error(`${dayData.dateKey} 데이터 API 호출 실패`, e);
             }
