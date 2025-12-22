@@ -14,6 +14,29 @@ if (window.name !== 'frameBody') {
   // console.log('TIMS Ext: Not in frameBody, stopping.');
 } else {
   console.log('TIMS Ext: Content script initialized in frameBody');
+
+  // ==================== 타깃 페이지 판별 유틸 ====================
+  // 요구: frameBody 내 <head><title>이 "일일근퇴조회/확정" 인 경우에만 동작
+  const TARGET_TITLE_KEYWORDS = [
+    '일일근퇴조회/확정',
+    // 일부 사용자 표현(오타/약칭) 대응
+    '일일근태조회'
+  ];
+
+  function getFrameTitleText() {
+    try {
+      const t = document.querySelector('head > title');
+      const txt = (t?.textContent || document.title || '').trim();
+      return txt;
+    } catch (e) {
+      return (document.title || '').trim();
+    }
+  }
+
+  function isTargetPage() {
+    const titleText = getFrameTitleText();
+    return !!titleText && TARGET_TITLE_KEYWORDS.some(k => titleText.includes(k));
+  }
   // ==================== 상수 ====================
   const DEFAULT_WORK_HOURS = 8; // 기본 근무 시간 (8시간)
   const DEFAULT_BREAK_TIME = 1; // 기본 휴게 시간 (1시간)
@@ -717,6 +740,11 @@ if (window.name !== 'frameBody') {
     isProcessing = true;
     
     try {
+      if (!isTargetPage()) {
+        // 타깃 페이지가 아니면 실행하지 않음
+        isProcessing = false;
+        return;
+      }
       console.log('TIMS Ext: main() start');
       const table = findAttendanceTable();
       if (!table) {
@@ -803,6 +831,7 @@ if (window.name !== 'frameBody') {
     if (observer) observer.disconnect();
     
     observer = new MutationObserver((mutations) => {
+      if (!isTargetPage()) return; // 페이지 전환 시 오탐 방지
       const isTableAdded = mutations.some(m => Array.from(m.addedNodes).some(n => n.nodeType === 1 && n.tagName === 'TABLE'));
       const isSelfMutation = mutations.some(m => Array.from(m.addedNodes).some(n => n.nodeType === 1 && n.classList?.contains('tims-ext-injected')));
       
@@ -818,9 +847,36 @@ if (window.name !== 'frameBody') {
     main();
   }
 
-  if (document.readyState === 'complete') {
-    setupObserver();
-  } else {
-    window.addEventListener('load', setupObserver);
+  // 부트스트랩: 타깃 페이지에서만 Observer를 시작한다.
+  function bootstrapWithTitleCheck() {
+    const startIfTarget = () => {
+      if (isTargetPage()) {
+        console.log('TIMS Ext: Target page detected by title. Starting observers.');
+        setupObserver();
+        return true;
+      }
+      return false;
+    };
+
+    if (startIfTarget()) return;
+
+    // 최대 15초 동안 500ms 간격으로 타이틀 감시 후 대상이면 시작
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      if (startIfTarget()) {
+        clearInterval(timer);
+      } else if (Date.now() - startedAt > 15000) {
+        clearInterval(timer);
+        console.log('TIMS Ext: Target page not detected within timeout. Skipping initialization.');
+      }
+    }, 500);
   }
+
+  if (document.readyState === 'complete') {
+    bootstrapWithTitleCheck();
+  } else {
+    window.addEventListener('load', bootstrapWithTitleCheck);
+  }
+
+  
 }
