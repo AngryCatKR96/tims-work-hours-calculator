@@ -162,7 +162,7 @@ if (window.name !== 'frameBody') {
     return `${parts[1].padStart(2, '0')}:${parts[2].padStart(2, '0')}`;
   }
 
-  function parseTimesFromHTML(html) {
+  function parseTimesFromHTML(html, isToday = false) {
     // DOM 기반 파싱 시도 (#resultTable 기준)
     try {
       const parser = new DOMParser();
@@ -214,7 +214,7 @@ if (window.name !== 'frameBody') {
         const lastEventIsOut = lastEventType === 'OUT';
 
         if (startTime || endTime) {
-          console.log('TIMS Ext: Parsed times from API table:', { startTime, endTime, inTimes, outTimes, lastEventIsOut });
+          console.log('TIMS Ext: Parsed times from API table:', { startTime, endTime, inTimes, outTimes, lastEventIsOut, isToday });
           return { startTime, endTime, inTimes, outTimes, lastEventIsOut };
         }
       }
@@ -718,13 +718,8 @@ if (window.name !== 'frameBody') {
       if (dayData.isFuture) {
         await renderFutureCell(cell, dayData, onTimeChange);
       } else if (todayFlag) {
-        if (dayData.lastEventIsOut && dayData.endTime) {
-          // 오늘이지만 실제 마지막 이벤트가 OUT이면 확정 표시
-          renderPastCell(cell, dayData);
-        } else {
-          // 오늘이고 아직 최종 OUT이 아니면 편집 가능 렌더
-          await renderTodayCell(cell, dayData, onTimeChange);
-        }
+        // 오늘은 무조건 사용자가 퇴근 시간을 입력하도록 편집 가능하게 표시
+        await renderTodayCell(cell, dayData, onTimeChange);
       } else {
         renderPastCell(cell, dayData);
       }
@@ -777,28 +772,20 @@ if (window.name !== 'frameBody') {
         } else {
             // 과거/오늘: 부족한 값만 API로 보충
             try {
-                const html = await fetchAttendanceData(dayData.dateKey, empInfo.empNo, empInfo.empNm);
-                const times = parseTimesFromHTML(html);
                 const todayFlag = isToday(dayData.date);
+                const html = await fetchAttendanceData(dayData.dateKey, empInfo.empNo, empInfo.empNm);
+                const times = parseTimesFromHTML(html, todayFlag);
                 if (!dayData.startTime && times?.startTime) dayData.startTime = times.startTime;
                 if (todayFlag) {
-                  // 오늘은 마지막 이벤트가 OUT일 때만 endTime 채택 (폴백 결과는 사용 금지)
-                  const lastOut = times?.lastEventIsOut === true;
-                  dayData.lastEventIsOut = lastOut;
-                  if (!dayData.endTime && lastOut && times?.endTime) {
-                    dayData.endTime = times.endTime;
-                  } else {
-                    // 오늘인데 마지막이 OUT이 아니거나 불명확하면 endTime을 비워둔다
-                    if (!dayData.endTime) dayData.endTime = null;
-                  }
-                  console.debug('TIMS Ext: Today decision', {
+                  // 오늘은 무조건 사용자가 퇴근 시간을 입력하므로 API에서 endTime을 가져오지 않음
+                  dayData.endTime = null;
+                  dayData.lastEventIsOut = false;
+                  console.debug('TIMS Ext: Today - endTime will be user input only', {
                     dateKey: dayData.dateKey,
-                    inTimes: times?.inTimes,
-                    outTimes: times?.outTimes,
-                    lastEventIsOut: lastOut,
-                    appliedEndTime: dayData.endTime
+                    startTime: dayData.startTime
                   });
                 } else {
+                  // 과거 날짜는 API에서 endTime 가져오기
                   if (!dayData.endTime && times?.endTime) dayData.endTime = times.endTime;
                 }
             } catch (e) {
