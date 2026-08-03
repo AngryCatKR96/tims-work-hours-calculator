@@ -7,11 +7,11 @@
     "storage"
   ],
   "host_permissions": [
-    "https://dtims.tibero.com/*"
+    "https://dtaps.tibero.com/*"
   ],
   "content_scripts": [
     {
-      "matches": ["https://dtims.tibero.com/*"],
+      "matches": ["https://dtaps.tibero.com/*"],
       "js": ["content.js"],
       "css": ["styles/inject.css"],
       "all_frames": true,
